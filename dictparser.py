@@ -15,6 +15,7 @@ from pathlib import Path
 from string import punctuation, whitespace
 
 import pandas as pd
+# from textblob import TextBlob
 
 # =============================================================================
 
@@ -56,19 +57,21 @@ raw_df.fillna("", inplace=True)
 parsed_df = pd.DataFrame(columns=raw_df.columns.values.tolist())
 
 # Regular expressions
-term_plus_industry_pattern = (
-    r"((?:(?:\"[A-Z]+\" )?(?:(?:\b[A-Z0-9]+\b) *-* *)+)(?<=[A-Z])[^A-Z]*)\(([^A-Z]+?)\)"
-)
+term_plus_industry_pattern = r"((?:(?:\"[A-Z]+\" )?(?:(?:\b[A-Z0-9]+\b) *-* *)+)(?<=[A-Z])[^A-Z()]*)\(([^A-Z]+?)\)"
 term_plus_industry_pattern_nogroups = (
-    r"(?:(?:\"[A-Z]+\" )?(?:(?:\b[A-Z0-9]+\b) *-* *)+)(?<=[A-Z])[^A-Z]*\([^A-Z]+?\)"
+    r"(?:(?:\"[A-Z]+\" )?(?:(?:\b[A-Z0-9]+\b) *-* *)+)(?<=[A-Z])[^A-Z()]*\([^A-Z]+?\)"
 )
 number_pattern = r"(^[^a-zA-Z]+)\."
 
-row_number = 1
+# String constants
+punctuation_plus_whitespace = punctuation + whitespace
+punctuation_minus_period = punctuation.replace(".", "")
+
+# row_number = 1
 
 # For initial testing, parse only the first 1000 rows of input
-for index, row in raw_df.head(1000).iterrows():
-    print("Parsing row " + str(row_number))
+for index, row in raw_df.iterrows():
+    # print("Parsing row " + str(row_number))
 
     # Collect row data
     first_term = str(row["term"]).strip()
@@ -97,12 +100,12 @@ for index, row in raw_df.head(1000).iterrows():
 
         for chunk in term_plus_industry_chunks:
             # Parse out 'term examples,' i.e., the text after the capitalized portion of the term (but preceding the industry)
-            term_components = chunk.group(1).split(";", 1)
+            term_components = re.split(r";|:|(?:, *[a-z]+)", chunk.group(1), 1)
 
             if len(term_components) > 1:
                 # If 'term examples' are present, grab them
                 term_examples.append(
-                    term_components[1].strip().lstrip(punctuation + whitespace)
+                    term_components[1].strip(punctuation_plus_whitespace)
                 )
             else:
                 term_examples.append("")
@@ -125,7 +128,8 @@ for index, row in raw_df.head(1000).iterrows():
         first_definition = (
             number_plus_definition_chunks.pop(0)
             .strip()
-            .lstrip(punctuation + whitespace)
+            .lstrip(punctuation_plus_whitespace)
+            .rstrip(punctuation_minus_period)
         )
 
         numbers = []
@@ -139,18 +143,21 @@ for index, row in raw_df.head(1000).iterrows():
 
             if number_match:
                 # If number is present, grab it
-                number = number_match.group(1).strip().lstrip(punctuation + whitespace)
+                number = number_match.group(1).strip(punctuation_plus_whitespace)
                 numbers.append(number)
 
                 # Parse out definition
-                definition = (
-                    chunk.replace(number, "").strip().lstrip(punctuation + whitespace)
-                )
+                definition = chunk.replace(number, "")
             else:
                 numbers.append("")
+                definition = chunk
 
-                # Parse out definition
-                definition = chunk.strip().lstrip(punctuation + whitespace)
+            # Clean definition
+            definition = (
+                definition.strip()
+                .lstrip(punctuation_plus_whitespace)
+                .rstrip(punctuation_minus_period)
+            )
 
             # Grab definition
             definitions.append(definition)
@@ -158,9 +165,9 @@ for index, row in raw_df.head(1000).iterrows():
         # Write the original row to the dataframe storing the parsed data
         parsed_df.loc[len(parsed_df)] = [
             first_number,
-            first_term,
-            first_industry,
-            first_definition,
+            first_term,       # TextBlob(first_term).correct(),
+            first_industry,   # TextBlob(first_industry).correct(),
+            first_definition, # TextBlob(first_definition).correct(),
         ]
 
         # Write any newly-created rows to the dataframe storing the parsed data
@@ -173,21 +180,21 @@ for index, row in raw_df.head(1000).iterrows():
             )
             parsed_df.loc[len(parsed_df)] = [
                 numbers[i],
-                terms[i],
-                industries[i],
-                definition,
+                terms[i],      # TextBlob(terms[i]).correct(),
+                industries[i], # TextBlob(industries[i]).correct(),
+                definition,    # TextBlob(definition).correct(),
             ]
     else:
         # If we end up here, then the definition column of the current row is empty
         # Just copy the row over to the dataframe storing the parsed data
         parsed_df.loc[len(parsed_df)] = [
             first_number,
-            first_term,
-            first_industry,
-            string_to_parse,
+            first_term,      # TextBlob(first_term).correct(),
+            first_industry,  # TextBlob(first_industry).correct(),
+            string_to_parse, # TextBlob(string_to_parse).correct(),
         ]
 
-    row_number += 1
+    # row_number += 1
 
 # Write the parsed data to an excel file
 parsed_df.to_excel(output_file_path, index=False)
